@@ -1,65 +1,179 @@
-# Claude Code
+# Ralph Wiggum Plugin
 
-![](https://img.shields.io/badge/Node.js-18%2B-brightgreen?style=flat-square) [![npm]](https://www.npmjs.com/package/@anthropic-ai/claude-code)
+Implementation of the Ralph Wiggum technique for iterative, self-referential AI development loops in Claude Code.
 
-[npm]: https://img.shields.io/npm/v/@anthropic-ai/claude-code.svg?style=flat-square
+## What is Ralph?
 
-Claude Code is an agentic coding tool that lives in your terminal, understands your codebase, and helps you code faster by executing routine tasks, explaining complex code, and handling git workflows -- all through natural language commands. Use it in your terminal, IDE, or tag @claude on Github.
+Ralph is a development methodology based on continuous AI agent loops. As Geoffrey Huntley describes it: **"Ralph is a Bash loop"** - a simple `while true` that repeatedly feeds an AI agent a prompt file, allowing it to iteratively improve its work until completion.
 
-**Learn more in the [official documentation](https://docs.anthropic.com/en/docs/claude-code/overview)**.
+The technique is named after Ralph Wiggum from The Simpsons, embodying the philosophy of persistent iteration despite setbacks.
 
-<img src="./demo.gif" />
+### Core Concept
 
-## Get started
+This plugin implements Ralph using a **Stop hook** that intercepts Claude's exit attempts:
 
-1. Install Claude Code:
-
-**MacOS/Linux:**
 ```bash
-curl -fsSL https://claude.ai/install.sh | bash
+# You run ONCE:
+/ralph-loop "Your task description" --completion-promise "DONE"
+
+# Then Claude Code automatically:
+# 1. Works on the task
+# 2. Tries to exit
+# 3. Stop hook blocks exit
+# 4. Stop hook feeds the SAME prompt back
+# 5. Repeat until completion
 ```
 
-**Homebrew (MacOS):**
+The loop happens **inside your current session** - you don't need external bash loops. The Stop hook in `hooks/stop-hook.sh` creates the self-referential feedback loop by blocking normal session exit.
+
+This creates a **self-referential feedback loop** where:
+- The prompt never changes between iterations
+- Claude's previous work persists in files
+- Each iteration sees modified files and git history
+- Claude autonomously improves by reading its own past work in files
+
+## Quick Start
+
 ```bash
-brew install --cask claude-code
+/ralph-loop "Build a REST API for todos. Requirements: CRUD operations, input validation, tests. Output <promise>COMPLETE</promise> when done." --completion-promise "COMPLETE" --max-iterations 50
 ```
 
-**Windows:**
-```powershell
-irm https://claude.ai/install.ps1 | iex
-```
+Claude will:
+- Implement the API iteratively
+- Run tests and see failures
+- Fix bugs based on test output
+- Iterate until all requirements met
+- Output the completion promise when done
 
-**NPM:**
+## Commands
+
+### /ralph-loop
+
+Start a Ralph loop in your current session.
+
+**Usage:**
 ```bash
-npm install -g @anthropic-ai/claude-code
+/ralph-loop "<prompt>" --max-iterations <n> --completion-promise "<text>"
 ```
 
-NOTE: If installing with NPM, you also need to install [Node.js 18+](https://nodejs.org/en/download/)
+**Options:**
+- `--max-iterations <n>` - Stop after N iterations (default: unlimited)
+- `--completion-promise <text>` - Phrase that signals completion
 
-2. Navigate to your project directory and run `claude`.
+### /cancel-ralph
 
-## Plugins
+Cancel the active Ralph loop.
 
-This repository includes several Claude Code plugins that extend functionality with custom commands and agents. See the [plugins directory](./plugins/README.md) for detailed documentation on available plugins.
+**Usage:**
+```bash
+/cancel-ralph
+```
 
-## Reporting Bugs
+## Prompt Writing Best Practices
 
-We welcome your feedback. Use the `/bug` command to report issues directly within Claude Code, or file a [GitHub issue](https://github.com/anthropics/claude-code/issues).
+### 1. Clear Completion Criteria
 
-## Connect on Discord
+❌ Bad: "Build a todo API and make it good."
 
-Join the [Claude Developers Discord](https://anthropic.com/discord) to connect with other developers using Claude Code. Get help, share feedback, and discuss your projects with the community.
+✅ Good:
+```markdown
+Build a REST API for todos.
 
-## Data collection, usage, and retention
+When complete:
+- All CRUD endpoints working
+- Input validation in place
+- Tests passing (coverage > 80%)
+- README with API docs
+- Output: <promise>COMPLETE</promise>
+```
 
-When you use Claude Code, we collect feedback, which includes usage data (such as code acceptance or rejections), associated conversation data, and user feedback submitted via the `/bug` command.
+### 2. Incremental Goals
 
-### How we use your data
+❌ Bad: "Create a complete e-commerce platform."
 
-See our [data usage policies](https://docs.anthropic.com/en/docs/claude-code/data-usage).
+✅ Good:
+```markdown
+Phase 1: User authentication (JWT, tests)
+Phase 2: Product catalog (list/search, tests)
+Phase 3: Shopping cart (add/remove, tests)
 
-### Privacy safeguards
+Output <promise>COMPLETE</promise> when all phases done.
+```
 
-We have implemented several safeguards to protect your data, including limited retention periods for sensitive information, restricted access to user session data, and clear policies against using feedback for model training.
+### 3. Self-Correction
 
-For full details, please review our [Commercial Terms of Service](https://www.anthropic.com/legal/commercial-terms) and [Privacy Policy](https://www.anthropic.com/legal/privacy).
+❌ Bad: "Write code for feature X."
+
+✅ Good:
+```markdown
+Implement feature X following TDD:
+1. Write failing tests
+2. Implement feature
+3. Run tests
+4. If any fail, debug and fix
+5. Refactor if needed
+6. Repeat until all green
+7. Output: <promise>COMPLETE</promise>
+```
+
+### 4. Escape Hatches
+
+Always use `--max-iterations` as a safety net to prevent infinite loops on impossible tasks:
+
+```bash
+# Recommended: Always set a reasonable iteration limit
+/ralph-loop "Try to implement feature X" --max-iterations 20
+
+# In your prompt, include what to do if stuck:
+# "After 15 iterations, if not complete:
+#  - Document what's blocking progress
+#  - List what was attempted
+#  - Suggest alternative approaches"
+```
+
+**Note**: The `--completion-promise` uses exact string matching, so you cannot use it for multiple completion conditions (like "SUCCESS" vs "BLOCKED"). Always rely on `--max-iterations` as your primary safety mechanism.
+
+## Philosophy
+
+Ralph embodies several key principles:
+
+### 1. Iteration > Perfection
+Don't aim for perfect on first try. Let the loop refine the work.
+
+### 2. Failures Are Data
+"Deterministically bad" means failures are predictable and informative. Use them to tune prompts.
+
+### 3. Operator Skill Matters
+Success depends on writing good prompts, not just having a good model.
+
+### 4. Persistence Wins
+Keep trying until success. The loop handles retry logic automatically.
+
+## When to Use Ralph
+
+**Good for:**
+- Well-defined tasks with clear success criteria
+- Tasks requiring iteration and refinement (e.g., getting tests to pass)
+- Greenfield projects where you can walk away
+- Tasks with automatic verification (tests, linters)
+
+**Not good for:**
+- Tasks requiring human judgment or design decisions
+- One-shot operations
+- Tasks with unclear success criteria
+- Production debugging (use targeted debugging instead)
+
+## Real-World Results
+
+- Successfully generated 6 repositories overnight in Y Combinator hackathon testing
+- One $50k contract completed for $297 in API costs
+- Created entire programming language ("cursed") over 3 months using this approach
+
+## Learn More
+
+- Original technique: https://ghuntley.com/ralph/
+- Ralph Orchestrator: https://github.com/mikeyobrien/ralph-orchestrator
+
+## For Help
+
+Run `/help` in Claude Code for detailed command reference and examples.
