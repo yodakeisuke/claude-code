@@ -1,0 +1,5 @@
+# IDE
+.idea/
+
+# AoT Loop state (session-specific)
+.claude/aot-loop-state.md

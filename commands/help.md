@@ -1,126 +1,179 @@
 ---
-description: "Explain Ralph Wiggum technique and available commands"
+description: "Explain AoT Loop plugin commands and usage"
 ---
 
-# Ralph Wiggum Plugin Help
+# AoT Loop Plugin Help
 
 Please explain the following to the user:
 
-## What is the Ralph Wiggum Technique?
+## What is AoT Loop?
 
-The Ralph Wiggum technique is an iterative development methodology based on continuous AI loops, pioneered by Geoffrey Huntley.
+AoT (Atom of Thoughts) is an autonomous development loop that decomposes complex goals into a DAG (Directed Acyclic Graph) of atomic tasks:
 
-**Core concept:**
-```bash
-while :; do
-  cat PROMPT.md | claude-code --continue
-done
-```
-
-The same prompt is fed to Claude repeatedly. The "self-referential" aspect comes from Claude seeing its own previous work in the files and git history, not from feeding output back as input.
-
-**Each iteration:**
-1. Claude receives the SAME prompt
-2. Works on the task, modifying files
-3. Tries to exit
-4. Stop hook intercepts and feeds the same prompt again
-5. Claude sees its previous work in the files
-6. Iteratively improves until completion
-
-The technique is described as "deterministically bad in an undeterministic world" - failures are predictable, enabling systematic improvement through prompt tuning.
+- **Atoms**: Smallest units of work
+- **Dependencies**: AND/OR relationships between tasks
+- **Convergence**: Loop stops when base_case is satisfied
+- **Backtracking**: OR branches allow alternative approaches on failure
 
 ## Available Commands
 
-### /ralph-loop <PROMPT> [OPTIONS]
+### /align-goal [requirements]
 
-Start a Ralph loop in your current session.
+Interactive goal alignment - establish objective before starting the loop.
 
 **Usage:**
 ```
-/ralph-loop "Refactor the cache layer" --max-iterations 20
-/ralph-loop "Add tests" --completion-promise "TESTS COMPLETE"
+/align-goal "Build a REST API with auth and tests"
 ```
 
-**Options:**
-- `--max-iterations <n>` - Max iterations before auto-stop
-- `--completion-promise <text>` - Promise phrase to signal completion
-
-**How it works:**
-1. Creates `.claude/.ralph-loop.local.md` state file
-2. You work on the task
-3. When you try to exit, stop hook intercepts
-4. Same prompt fed back
-5. You see your previous work
-6. Continues until promise detected or max iterations
+**Process:**
+1. Discuss requirements interactively
+2. Define background intent, deliverables, completion criteria
+3. Generate initial Work Graph (DAG of Atoms)
+4. Save to `.claude/aot-loop-state.md`
 
 ---
 
-### /cancel-ralph
+### /enter-recursion
 
-Cancel an active Ralph loop (removes the loop state file).
+Start the autonomous loop after goal alignment.
 
 **Usage:**
 ```
-/cancel-ralph
+/enter-recursion
 ```
 
-**How it works:**
-- Checks for active loop state file
-- Removes `.claude/.ralph-loop.local.md`
-- Reports cancellation with iteration count
+**Prerequisites:**
+- Must run `/align-goal` first
+- State file must exist with valid objective
+
+**Process:**
+1. Validates alignment (goal, base_case, atoms exist)
+2. Spawns coordinator agent
+3. Loop runs until base_case satisfied or stopped
+
+---
+
+### /exit-recursion [reason]
+
+Manually stop the loop (state preserved for later resumption).
+
+**Usage:**
+```
+/exit-recursion
+/exit-recursion "Need to review approach"
+```
+
+**Process:**
+1. Sets `stop_requested = true`
+2. Records stop reason
+3. Preserves all state (can resume with `/enter-recursion`)
+
+---
+
+### /redirect [instructions]
+
+Interrupt the loop and modify direction without stopping.
+
+**Usage:**
+```
+/redirect
+/redirect "Change auth from JWT to sessions"
+```
+
+**Process:**
+1. Interrupts running workers
+2. Shows current state
+3. Accepts modification instructions
+4. Updates state and continues loop
 
 ---
 
 ## Key Concepts
 
-### Completion Promises
+### Base Case
 
-To signal completion, Claude must output a `<promise>` tag:
+The completion criteria that can be externally verified:
 
-```
-<promise>TASK COMPLETE</promise>
-```
-
-The stop hook looks for this specific tag. Without it (or `--max-iterations`), Ralph runs infinitely.
-
-### Self-Reference Mechanism
-
-The "loop" doesn't mean Claude talks to itself. It means:
-- Same prompt repeated
-- Claude's work persists in files
-- Each iteration sees previous attempts
-- Builds incrementally toward goal
-
-## Example
-
-### Interactive Bug Fix
-
-```
-/ralph-loop "Fix the token refresh logic in auth.ts. Output <promise>FIXED</promise> when all tests pass." --completion-promise "FIXED" --max-iterations 10
+```yaml
+base_case:
+  type: command
+  value: "npm test"
 ```
 
-You'll see Ralph:
-- Attempt fixes
-- Run tests
-- See failures
-- Iterate on solution
-- In your current session
+When the base case passes, the loop completes successfully.
 
-## When to Use Ralph
+### Work Graph (DAG)
+
+Tasks are decomposed into Atoms with dependencies:
+
+```
+A1: Create User model
+ └─ A2: Implement auth (depends on A1)
+     ├─ A3: Password hashing (depends on A1)
+     └─ A4: JWT tokens (depends on A1)
+```
+
+### Convergence Guarantees
+
+- **Stopping**: Base case satisfaction, manual stop, or iteration limit
+- **Progress**: DAG must shrink (fewer pending Atoms) each iteration
+- **Stall detection**: If no progress after N iterations, strategy changes
+
+### Backtracking (OR Branches)
+
+When an approach fails:
+
+```yaml
+or_groups:
+  auth_method:
+    choices: [jwt_auth, session_auth]
+    selected: jwt_auth  # If this fails, try session_auth
+```
+
+---
+
+## Example Workflow
+
+```bash
+# Step 1: Align on the goal
+/align-goal "Build a TODO API with CRUD, validation, and tests"
+
+# Step 2: Review the generated Work Graph
+# (Claude will show the DAG of Atoms)
+
+# Step 3: Start autonomous execution
+/enter-recursion
+
+# The loop runs autonomously:
+# - Executes Atoms in dependency order
+# - Verifies progress each iteration
+# - Backtracking on failures
+# - Completes when all tests pass
+```
+
+---
+
+## When to Use AoT Loop
 
 **Good for:**
-- Well-defined tasks with clear success criteria
-- Tasks requiring iteration and refinement
-- Iterative development with self-correction
-- Greenfield projects
+- Complex multi-step tasks requiring decomposition
+- Tasks with verifiable completion criteria (tests, commands)
+- Work that may need alternative approaches
+- Long-running autonomous development
 
 **Not good for:**
-- Tasks requiring human judgment or design decisions
-- One-shot operations
-- Tasks with unclear success criteria
-- Debugging production issues (use targeted debugging instead)
+- Simple one-shot operations
+- Tasks requiring human judgment at each step
+- Unclear or subjective success criteria
 
-## Learn More
+---
 
-- Original technique: https://ghuntley.com/ralph/
-- Ralph Orchestrator: https://github.com/mikeyobrien/ralph-orchestrator
+## Sub-Agents
+
+| Agent | Role |
+|-------|------|
+| **Coordinator** | Manages iteration, spawns sub-agents |
+| **Probe** | Investigates feasibility (read-only) |
+| **Worker** | Executes Atom tasks |
+| **Verifier** | Checks base_case completion |

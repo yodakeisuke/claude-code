@@ -1,178 +1,205 @@
-# Ralph Wiggum Plugin
+# AoT Loop Plugin
 
-Implementation of the Ralph Wiggum technique for iterative, self-referential AI development loops in Claude Code.
+Goal-aligned autonomous iteration with DAG-based task decomposition, convergence guarantees, and backtracking support.
 
-## What is Ralph?
+## What is AoT Loop?
 
-Ralph is a development methodology based on continuous AI agent loops. As Geoffrey Huntley describes it: **"Ralph is a Bash loop"** - a simple `while true` that repeatedly feeds an AI agent a prompt file, allowing it to iteratively improve its work until completion.
+AoT (Atom of Thoughts) decomposes complex goals into a DAG (Directed Acyclic Graph) of atomic tasks:
 
-The technique is named after Ralph Wiggum from The Simpsons, embodying the philosophy of persistent iteration despite setbacks.
-
-### Core Concept
-
-This plugin implements Ralph using a **Stop hook** that intercepts Claude's exit attempts:
-
-```bash
-# You run ONCE:
-/ralph-loop "Your task description" --completion-promise "DONE"
-
-# Then Claude Code automatically:
-# 1. Works on the task
-# 2. Tries to exit
-# 3. Stop hook blocks exit
-# 4. Stop hook feeds the SAME prompt back
-# 5. Repeat until completion
-```
-
-The loop happens **inside your current session** - you don't need external bash loops. The Stop hook in `hooks/stop-hook.sh` creates the self-referential feedback loop by blocking normal session exit.
-
-This creates a **self-referential feedback loop** where:
-- The prompt never changes between iterations
-- Claude's previous work persists in files
-- Each iteration sees modified files and git history
-- Claude autonomously improves by reading its own past work in files
+- **Atoms**: Smallest units of work
+- **Dependencies**: AND/OR relationships between tasks
+- **Convergence**: Loop stops when base_case is satisfied
+- **Backtracking**: OR branches allow alternative approaches on failure
 
 ## Quick Start
 
 ```bash
-/ralph-loop "Build a REST API for todos. Requirements: CRUD operations, input validation, tests. Output <promise>COMPLETE</promise> when done." --completion-promise "COMPLETE" --max-iterations 50
-```
+# Step 1: Align on the goal
+/align-goal "Build a REST API with auth, CRUD for todos, and tests"
 
-Claude will:
-- Implement the API iteratively
-- Run tests and see failures
-- Fix bugs based on test output
-- Iterate until all requirements met
-- Output the completion promise when done
+# Step 2: Start the autonomous loop
+/enter-recursion
+
+# The loop will:
+# - Decompose into Atoms (user model, auth, endpoints, tests)
+# - Execute in dependency order
+# - Verify completion via base_case
+# - Backtrack if an approach fails
+```
 
 ## Commands
 
-### /ralph-loop
+| Command | Description |
+|---------|-------------|
+| `/align-goal` | Interactive goal alignment - define objective, deliverables, completion criteria |
+| `/enter-recursion` | Start the autonomous loop after alignment |
+| `/exit-recursion` | Manually stop the loop (state preserved) |
+| `/redirect` | Interrupt and modify direction without stopping |
 
-Start a Ralph loop in your current session.
+## How It Works
 
-**Usage:**
-```bash
-/ralph-loop "<prompt>" --max-iterations <n> --completion-promise "<text>"
+### 1. Goal Alignment (`/align-goal`)
+
+Interactive dialogue to establish:
+- **Background intent**: Why this work is needed
+- **Deliverables**: What will be produced
+- **Base case**: Externally verifiable completion criteria (e.g., `npm test` passes)
+
+### 2. Work Graph (DAG)
+
+Tasks are decomposed into Atoms with dependencies:
+
+```
+A1: Create User model
+ └─ A2: Implement auth (depends on A1)
+     ├─ A3: Password hashing (depends on A1)
+     └─ A4: JWT tokens (depends on A1)
+         └─ A5: Login endpoint (depends on A3, A4)
 ```
 
-**Options:**
-- `--max-iterations <n>` - Stop after N iterations (default: unlimited)
-- `--completion-promise <text>` - Phrase that signals completion
+### 3. Autonomous Execution
 
-### /cancel-ralph
+The **coordinator agent** manages each iteration:
+1. Analyze the Work Graph
+2. Identify executable Atoms (dependencies resolved)
+3. Spawn sub-agents (Probe, Worker, Verifier)
+4. Integrate results
+5. Evaluate progress
 
-Cancel the active Ralph loop.
+### 4. Convergence Guarantees
 
-**Usage:**
-```bash
-/cancel-ralph
+- **Stopping**: Base case satisfaction, manual stop, or iteration limit
+- **Progress**: DAG must shrink (fewer pending Atoms) each iteration
+- **Stall detection**: Switch strategy if no progress after N iterations
+
+### 5. Backtracking (OR Branches)
+
+When an approach fails:
+
+```yaml
+or_groups:
+  auth_method:
+    choices: [jwt_auth, session_auth]
+    selected: jwt_auth  # If this fails, try session_auth
 ```
 
-## Prompt Writing Best Practices
+## Sub-Agents
 
-### 1. Clear Completion Criteria
+| Agent | Role | Tools |
+|-------|------|-------|
+| **Coordinator** | Manage iteration, spawn agents | Read, Write, Edit, Task, Glob, Grep, Bash |
+| **Probe** | Investigate feasibility (read-only) | Read, Glob, Grep, WebSearch, WebFetch |
+| **Worker** | Execute Atom tasks | Read, Write, Edit, Bash, Glob, Grep, Task, WebSearch, WebFetch |
+| **Verifier** | Check base_case | Bash, Read, Glob |
 
-❌ Bad: "Build a todo API and make it good."
+## State File
 
-✅ Good:
-```markdown
-Build a REST API for todos.
+Progress is persisted in `.claude/aot-loop-state.md`:
 
-When complete:
-- All CRUD endpoints working
-- Input validation in place
-- Tests passing (coverage > 80%)
-- README with API docs
-- Output: <promise>COMPLETE</promise>
+```yaml
+objective:
+  goal: "Build REST API"
+  base_case:
+    type: command
+    value: "npm test"
+
+control:
+  status: running
+  iteration: 5
+  stall_count: 0
+  prev_pending_count: 2
+
+atoms:
+  - id: A1
+    description: "User model"
+    status: resolved
+  - id: A2
+    description: "Auth logic"
+    status: pending
+    depends_on: [A1]
 ```
 
-### 2. Incremental Goals
-
-❌ Bad: "Create a complete e-commerce platform."
-
-✅ Good:
-```markdown
-Phase 1: User authentication (JWT, tests)
-Phase 2: Product catalog (list/search, tests)
-Phase 3: Shopping cart (add/remove, tests)
-
-Output <promise>COMPLETE</promise> when all phases done.
-```
-
-### 3. Self-Correction
-
-❌ Bad: "Write code for feature X."
-
-✅ Good:
-```markdown
-Implement feature X following TDD:
-1. Write failing tests
-2. Implement feature
-3. Run tests
-4. If any fail, debug and fix
-5. Refactor if needed
-6. Repeat until all green
-7. Output: <promise>COMPLETE</promise>
-```
-
-### 4. Escape Hatches
-
-Always use `--max-iterations` as a safety net to prevent infinite loops on impossible tasks:
-
-```bash
-# Recommended: Always set a reasonable iteration limit
-/ralph-loop "Try to implement feature X" --max-iterations 20
-
-# In your prompt, include what to do if stuck:
-# "After 15 iterations, if not complete:
-#  - Document what's blocking progress
-#  - List what was attempted
-#  - Suggest alternative approaches"
-```
-
-**Note**: The `--completion-promise` uses exact string matching, so you cannot use it for multiple completion conditions (like "SUCCESS" vs "BLOCKED"). Always rely on `--max-iterations` as your primary safety mechanism.
-
-## Philosophy
-
-Ralph embodies several key principles:
-
-### 1. Iteration > Perfection
-Don't aim for perfect on first try. Let the loop refine the work.
-
-### 2. Failures Are Data
-"Deterministically bad" means failures are predictable and informative. Use them to tune prompts.
-
-### 3. Operator Skill Matters
-Success depends on writing good prompts, not just having a good model.
-
-### 4. Persistence Wins
-Keep trying until success. The loop handles retry logic automatically.
-
-## When to Use Ralph
+## When to Use AoT Loop
 
 **Good for:**
-- Well-defined tasks with clear success criteria
-- Tasks requiring iteration and refinement (e.g., getting tests to pass)
-- Greenfield projects where you can walk away
-- Tasks with automatic verification (tests, linters)
+- Complex multi-step tasks requiring decomposition
+- Tasks with verifiable completion criteria (tests, commands)
+- Work that may need alternative approaches
+- Long-running autonomous development
 
 **Not good for:**
-- Tasks requiring human judgment or design decisions
-- One-shot operations
-- Tasks with unclear success criteria
-- Production debugging (use targeted debugging instead)
+- Simple one-shot operations
+- Tasks requiring human judgment at each step
+- Unclear or subjective success criteria
 
-## Real-World Results
+---
 
-- Successfully generated 6 repositories overnight in Y Combinator hackathon testing
-- One $50k contract completed for $297 in API costs
-- Created entire programming language ("cursed") over 3 months using this approach
+## Installation
 
-## Learn More
+### Method 1: Development Mode (Recommended for Testing)
 
-- Original technique: https://ghuntley.com/ralph/
-- Ralph Orchestrator: https://github.com/mikeyobrien/ralph-orchestrator
+Load the plugin directly from the local directory:
+
+```bash
+claude --plugin-dir /path/to/this/repo
+```
+
+Once started, commands are available with the `ralph-wiggum-aot:` prefix:
+- `/ralph-wiggum-aot:align-goal`
+- `/ralph-wiggum-aot:enter-recursion`
+- etc.
+
+### Method 2: Local Marketplace (Permanent Installation)
+
+**Step 1:** Create a local marketplace directory with `marketplace.json`:
+
+```bash
+mkdir -p ~/claude-marketplace/.claude-plugin
+```
+
+Create `~/claude-marketplace/.claude-plugin/marketplace.json`:
+
+```json
+{
+  "name": "local-marketplace",
+  "owner": { "name": "Your Name" },
+  "plugins": [
+    {
+      "name": "ralph-wiggum-aot",
+      "source": "/path/to/this/repo",
+      "description": "AoT Loop Plugin"
+    }
+  ]
+}
+```
+
+**Step 2:** Add the marketplace to Claude Code:
+
+```
+/plugin marketplace add ~/claude-marketplace
+```
+
+**Step 3:** Install the plugin:
+
+```
+/plugin install ralph-wiggum-aot@local-marketplace
+```
+
+**Step 4:** Verify installation:
+
+```
+/plugin list
+```
+
+### Validate Plugin Structure
+
+To verify the plugin is correctly structured:
+
+```
+/plugin validate /path/to/this/repo
+```
+
+---
 
 ## For Help
 

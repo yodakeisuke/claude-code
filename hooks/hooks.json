@@ -1,12 +1,23 @@
 {
-  "description": "Ralph Wiggum plugin stop hook for self-referential loops",
+  "description": "AoT Loop plugin hooks for autonomous iteration",
   "hooks": {
-    "Stop": [
+    "SubagentStop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh"
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/subagent-stop-hook.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash|Read|Glob|Grep|Task|WebSearch|WebFetch|KillShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/permission-request-hook.sh"
           }
         ]
       }
